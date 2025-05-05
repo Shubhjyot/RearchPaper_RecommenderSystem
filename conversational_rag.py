@@ -12,7 +12,7 @@ import joblib
 load_dotenv()
 
 class ConversationalRAG:
-    def __init__(self, processed_data=None, data_path='processed_data.pkl'):
+    def __init__(self, processed_data=None, data_path='processed_data.pkl', input_dir='.'):
         """Initialize the conversational RAG system with processed data."""
         if processed_data is not None:
             self.data = processed_data
@@ -30,13 +30,20 @@ class ConversationalRAG:
         self.gemini_api_key = os.getenv("GEMINI_API_KEY")
         if self.gemini_api_key:
             genai.configure(api_key=self.gemini_api_key)
-            self.gemini_model = genai.GenerativeModel('gemini-pro')
+            self.gemini_model = genai.GenerativeModel('gemini-2.0-flash')
         else:
             print("Warning: GEMINI_API_KEY not found in environment variables.")
             self.gemini_model = None
         
         # Conversation history
         self.conversation_history = []
+        
+        # Try to load pre-trained models if they exist
+        try:
+            self.load_models(input_dir)
+        except Exception as e:
+            print(f"Note: Pre-trained models not loaded: {e}")
+            print("Models will be built automatically when needed.")
     
     def build_vector_db(self, model_name='all-MiniLM-L6-v2'):
         """Build the vector database for RAG."""
@@ -72,8 +79,10 @@ class ConversationalRAG:
     
     def retrieve_relevant_papers(self, query, top_k=5):
         """Retrieve relevant papers for a query."""
+        # Automatically build vector database if it doesn't exist
         if self.transformer_model is None or self.faiss_index is None:
-            raise ValueError("Vector database not built. Run build_vector_db first.")
+            print("Vector database not built. Building it now...")
+            self.build_vector_db()
         
         # Encode the query
         query_embedding = self.transformer_model.encode([query]).astype(np.float32)
@@ -131,10 +140,9 @@ class ConversationalRAG:
         """
         
         # Generate response
-        response = self.gemini_model.generate_content([
-            {"role": "system", "parts": [system_prompt]},
-            {"role": "user", "parts": [prompt]}
-        ])
+        # Combine system prompt and user prompt since system role is not supported
+        combined_prompt = f"{system_prompt}\n\n{prompt}"
+        response = self.gemini_model.generate_content(combined_prompt)
         
         # Update conversation history
         self.conversation_history.append({"role": "assistant", "content": response.text})
